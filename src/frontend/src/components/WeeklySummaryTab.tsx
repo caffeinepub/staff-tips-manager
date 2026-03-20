@@ -71,6 +71,20 @@ export function WeeklySummaryTab() {
     return total;
   }
 
+  function isEmployeeFullyPaidForWeek(empId: bigint): boolean {
+    for (let d = 0; d < 7; d++) {
+      for (let s = 0; s < 2; s++) {
+        const rec = getRecord(d, s);
+        if (!rec) continue;
+        const worked = rec.employeeIds.some((id) => id === empId);
+        if (!worked) continue;
+        const paid = rec.paidEmployeeIds.some((id) => id === empId);
+        if (!paid) return false;
+      }
+    }
+    return true;
+  }
+
   function getShiftTotal(dayIdx: number, shiftIdx: number): number {
     const rec = getRecord(dayIdx, shiftIdx);
     return rec ? rec.poolAmount : 0;
@@ -93,6 +107,30 @@ export function WeeklySummaryTab() {
       toast.success("Marked as paid");
     } catch {
       toast.error("Failed to mark as paid");
+    }
+  }
+
+  async function handleMarkEmployeeWeekPaid(empId: bigint) {
+    const shifts = weekData.filter(
+      (rec) =>
+        rec.employeeIds.some((id) => id === empId) &&
+        !rec.paidEmployeeIds.some((id) => id === empId),
+    );
+    if (shifts.length === 0) return;
+    try {
+      await Promise.all(
+        shifts.map((rec) =>
+          markTipsPaid.mutateAsync({
+            weekKey: rec.weekKey,
+            dayIndex: rec.dayIndex,
+            shiftIndex: rec.shiftIndex,
+            employeeIds: [empId],
+          }),
+        ),
+      );
+      toast.success("Tips marked as paid for the week");
+    } catch {
+      toast.error("Failed to mark tips as paid");
     }
   }
 
@@ -128,7 +166,6 @@ export function WeeklySummaryTab() {
                   amount: rec.sharePerEmployee,
                 };
               });
-              // Build day label from dayIndex
               const dayName = DAY_NAMES[Number(rec.dayIndex)] ?? "";
               const shiftLabel = SHIFT_LABELS[Number(rec.shiftIndex)] ?? "";
               return (
@@ -399,6 +436,7 @@ export function WeeklySummaryTab() {
                   .map((emp) => ({
                     emp,
                     total: getEmployeeWeeklyTotal(emp.id),
+                    fullyPaid: isEmployeeFullyPaidForWeek(emp.id),
                     shifts: weekDates
                       .flatMap((_, dayIdx) =>
                         SHIFT_LABELS.map((label, shiftIdx) => ({
@@ -409,11 +447,11 @@ export function WeeklySummaryTab() {
                       .filter((s) => s.share !== null),
                   }))
                   .sort((a, b) => b.total - a.total)
-                  .map(({ emp, total, shifts }, idx) => (
+                  .map(({ emp, total, fullyPaid, shifts }, idx) => (
                     <div
                       key={String(emp.id)}
                       data-ocid={`summary.item.${idx + 1}`}
-                      className="px-5 py-5 flex flex-wrap items-start gap-3"
+                      className="px-5 py-5 flex flex-wrap items-center gap-3"
                     >
                       <div className="min-w-[140px]">
                         <p className="font-bold text-lg text-foreground">
@@ -434,7 +472,7 @@ export function WeeklySummaryTab() {
                           </span>
                         ))}
                       </div>
-                      <div className="text-right">
+                      <div className="flex items-center gap-3">
                         {total > 0 ? (
                           <span className="text-lg font-bold px-3 py-1 rounded success-badge">
                             {formatMoney(total)}
@@ -444,6 +482,22 @@ export function WeeklySummaryTab() {
                             £0.00
                           </span>
                         )}
+                        {total > 0 &&
+                          (fullyPaid ? (
+                            <span className="text-base font-semibold px-4 py-2 rounded-md bg-green-100 text-green-700 border border-green-300">
+                              Tips Paid
+                            </span>
+                          ) : (
+                            <Button
+                              data-ocid={`summary.pay_button.${idx + 1}`}
+                              variant="outline"
+                              className="text-base font-semibold h-10 px-4 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+                              disabled={markTipsPaid.isPending}
+                              onClick={() => handleMarkEmployeeWeekPaid(emp.id)}
+                            >
+                              Tips Paid for Week
+                            </Button>
+                          ))}
                       </div>
                     </div>
                   ))}
